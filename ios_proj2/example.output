@@ -1,0 +1,49 @@
+1: HACK 	1: starts
+2: HACK 	1: waits	:1	:0
+3: SERF 	1: starts
+4: SERF 	1: waits	:1	:1
+5: HACK 	2: starts
+6: HACK 	2: waits	:2	:1
+7: SERF 	2: starts
+8: SERF 	2: waits	:2	:2
+9: SERF 	1: boards	:0	:0
+10: SERF 	3: starts
+11: SERF 	3: waits	:0	:1
+12: HACK 	3: starts
+13: HACK 	3: waits	:1	:1
+14: HACK 	4: starts
+15: HACK 	4: waits	:2	:1
+16: SERF 	4: starts
+17: SERF 	4: waits	:2	:2
+18: HACK 	5: starts
+19: HACK 	5: waits	:3	:2
+20: SERF 	5: starts
+21: SERF 	5: leaves queue	:3	:2
+22: HACK 	6: starts
+23: SERF 	6: starts
+24: HACK 	6: leaves queue	:3	:2
+25: SERF 	6: leaves queue	:3	:2
+26: HACK 	6: is back
+27: HACK 	6: leaves queue	:3	:2
+28: HACK 	6: is back
+29: HACK 	6: leaves queue	:3	:2
+30: HACK 	2: member exits	:3	:2
+31: SERF 	2: member exits	:3	:2
+32: HACK 	1: member exits	:3	:2
+33: SERF 	1: captain exits	:3	:2
+34: SERF 	3: boards	:1	:0
+35: SERF 	6: is back
+36: SERF 	6: waits	:1	:1
+37: SERF 	5: is back
+38: SERF 	5: waits	:1	:2
+39: SERF 	4: member exits	:1	:2
+40: HACK 	4: member exits	:1	:2
+41: HACK 	3: member exits	:1	:2
+42: SERF 	3: captain exits	:1	:2
+43: HACK 	6: is back
+44: HACK 	6: waits	:2	:2
+45: HACK 	5: boards	:0	:0
+46: SERF 	6: member exits	:0	:0
+47: HACK 	6: member exits	:0	:0
+48: SERF 	5: member exits	:0	:0
+49: HACK 	5: captain exits	:0	:0

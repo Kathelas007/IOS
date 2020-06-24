@@ -1,0 +1,298 @@
+#!/bin/bash
+#!/usr/bin/env bash
+
+POSIXLY_CORRECT=yes
+# ***********************************************************************
+#                                                                       *
+# Script:		wana                                                    *
+# Date:    		Feb 2019                                                *
+# Author:   	Kateřina Mušková, xmusko00@stud.fit.vutbr.cz            *
+# Description:  Skrip for web log analysis                              *
+#                                                                       *
+# ***********************************************************************
+
+# zkontrolovat format date
+# zkontrolovat logs
+# napoveda + vypis napovedy na spravny std
+
+# upravit regex ip adres
+# vic souboru za sebou neni unikatni
+# kontrola vstupu, cas
+# vstup z stdoutu
+
+#sort u histu proste nefunguje
+
+#filtr uri a ip je nebezpecnej
+# ipv4, ipv6 zkontrolovat
+
+#**************** Help ****************************
+
+help_string=$'\nWana - skrip for web log analysis
+wana [FILTR] [COMMAND] [LOG [LOG2 [...]]\n
+FILTR - combination of:
+	-a DATETIME – after; DATETIME is in format YYYY-MM-DD HH:MM:SS
+	-b DATETIME – before;
+	-ip IPADDR – IPv4 or IPv6
+	-uri URI – regEx\n
+COMMAND - one of:
+	list-ip
+	list-hosts
+	list-uri
+	hist-ip
+	hist-load\n'
+
+#**************** Variables used as global ********
+
+date_a=1
+date_b=$(date +%s) 
+
+ipaddr_ip='.*'
+uri_uri='.*'
+
+logs_array=false
+
+command_function_array=("list_ip" "list_hosts" "list_uri" "hist_ip" "hist_load" "print_contends")
+command_function_index=5	
+
+contend=""
+
+################## FUNCTIONS ######################
+
+#***************** Regular functions **************
+
+check_args_opts () {
+    
+	echo $@;
+}
+
+leave_right_date_only () {
+	while IFS=" " read LINE
+	do 
+		local log_date=$(echo "$LINE" | sed -e "s/^[0-9.:a-f]* - - \[//g" | grep -Eo "^[^ ]+" | sed -e "s/\// /g; s/:/ /" | date -f - +%s)
+
+		if [ "$log_date" -gt "$date_a" ] && [ "$log_date" -lt "$date_b" ]; then
+			echo "$LINE"
+		fi
+
+	done
+}
+
+unzip_if_needed () {
+	while IFS=" " read FILE
+	do 		
+		if echo "$FILE" | grep -Eq '.*\.gz' ; then
+			gunzip -cd "$FILE" 
+		else
+			cat "$FILE" 
+		fi
+	
+	done
+}
+
+#**************** Commands ************************
+
+list_ip () {
+
+	echo "$contend" |
+	grep "$ipaddr_ip" | grep "$uri_uri" | leave_right_date_only | 
+	# ^ check IP FILTR  ^check uri FILTR  ^check date FILTR 
+	grep -Eo  "^[0-9.:a-f]+" 
+	# ^ print IP
+}
+
+list_hosts () {
+	
+	echo "$contend" |
+	grep "$ipaddr_ip" | grep "$uri_uri" | leave_right_date_only |
+	grep -Eo  "^[0-9.:a-f]*" |
+	#		   ^ take IPs only
+
+	while IFS=" " read var; do echo "$var" |
+	xargs host | grep -Eq -E '.*not found: [0-9].*' && echo "$var" || (echo "$var" | xargs host | grep -Eo '[^ ]+$' ); done |
+	# ^ check if tool host can find host and ptint if, if not print IP  
+
+	xargs -L1 echo | (sed -e '/^$/d')
+}
+
+list_uri () {
+	
+	echo "$contend" |
+	grep "$ipaddr_ip" | grep "$uri_uri"  | leave_right_date_only | xargs -L1 echo |
+	sed -e "s/^[^ ]* - - \[.*\] //" | grep -Eo '^((GET)|(HEAD)|(POST)|(PUT)|(DELETE)|(TRACE)|(CONNECT)) \/[^ ]*' |
+	#      ^ delete IPs							^ check for GET, HEAD,   
+	sed -e "s/^[^ ]* //"
+	#  	   ^ print uris only 
+}
+
+hist_ip () {
+
+	local LISTED_IPS="$( list_ip )"
+	local UNIQ_IPS="$( echo "$LISTED_IPS" | sort | uniq )"
+
+	# count appearaces of "uniq IPS" 
+	HIST=$( echo "$UNIQ_IPS" |             
+	while IFS="" read item;
+	do 
+		count=$(echo "$LISTED_IPS" | grep -o "$item" | wc -l )
+		hd=$( echo "$count $item ($count):")
+		tl=$( printf '%*s' "$count" ''|tr ' ' '#' )
+		
+		echo "$hd $tl"
+		
+	done )
+
+	# sort it end echo
+	echo "$HIST" | xargs -L1 echo | sort -V -r | sed -e "s/^[0-9]* //"
+}
+
+hist_load () {
+
+	min_time=$(date +%s)
+	max_time=1
+
+	cont="$(print_contends | xargs -L1 echo)"
+
+	# when were these IPs 
+	min_max=$( echo "$cont" | 
+	while IFS="\n" read ln
+	do 
+		lg_date=$(echo "$ln" | sed -e "s/^[0-9.:a-f]* - - \[//g" | grep -Eo "^[^ ]+" | sed -e "s/\// /g; s/:/ /" | date -f - +%s)
+		
+		if [[ $lg_date -lt $min_time ]]; then min_time=$lg_date; echo "min: $(date -ud @$min_time +%c) "; fi
+		if [[ $lg_date -gt $max_time ]]; then max_time=$lg_date; echo "max: $(date -ud @$max_time +%c) "; fi 
+
+		echo $min_time
+		echo $max_time
+	done | tail -n 2 )
+
+	# get first and last date
+	min_time=$(echo $min_max | grep -Eo "^[^ ]+")
+	max_time=$(echo $min_max | grep -Eo "[^ ]+$")
+
+	# period between these two limits
+	lower_limit=$(( (min_time/3600)*3600 ))
+	upper_limit=$(( (min_time/3600)*3600 + 3600))
+
+	while [[ lower_limit -le max_time ]]
+	do 
+		counter=0
+
+		counter=$( echo "$cont" | 
+		while IFS="\n" read ln
+		do 
+			# get date from one log
+			lg_date=$(echo "$ln" | sed -e "s/^[0-9.:a-f]* - - \[//g" | grep -Eo "^[^ ]+" | sed -e "s/\// /g; s/:/ /" | date -f - +%s)
+
+				# if it fits in time (between limits), count it
+				if [[ lg_date -ge lower_limit && lg_date -lt upper_limit ]]; then
+					((counter++))
+				fi	
+
+				echo $counter						
+		done | tail -n1 ) 
+
+		if [[ counter -ne 0 ]]; then
+			# at least one record -> print hist line to stdout 
+			lower_limit=$upper_limit
+			upper_limit=$(( upper_limit + 3600 ))
+
+			echo -n "$(date -ud @$lower_limit '+%Y-%m-%d %R') ($counter): "
+			printf '%*s' "$counter" ''|tr ' ' '#' | xargs -L1 echo
+
+		else
+			# if there is no record, shift upper time limit
+			upper_limit=$(( upper_limit + 3600 ))
+		fi
+	
+	done
+}
+
+print_contends () { # no command, print all matching patterns (if any appears)
+						
+	echo "$contend" | 
+	grep "$ipaddr_ip" | grep "$uri_uri" | leave_right_date_only
+	# ^ check all filters and print it 
+}
+
+################## PROCESS ARGUMENTS ##############
+
+ITR=1
+LAST_IND=0
+for arg in "$@" 		# [FILTERS]
+do
+	case "$arg" in 
+		"-a")
+			LAST_IND=$ITR;
+			LAST_IND=$((LAST_IND+1)) dt_a=${!LAST_IND};
+			date_a=$(date -d "$dt_a" +%s);;
+    	"-b")
+			LAST_IND=$ITR;
+			LAST_IND=$((LAST_IND+1)) dt_b=${!LAST_IND};
+			date_b=$(date -d "$dt_b" +%s);;   	
+    	"-ip")
+			LAST_IND=$ITR;
+			LAST_IND=$((LAST_IND+1)) ipaddr_ip=${!LAST_IND};;
+    	"-uri")
+			LAST_IND=$ITR;
+			LAST_IND=$((LAST_IND+1)) uri_uri=${!LAST_IND};;
+	esac
+
+	ITR=$((ITR+1))
+done
+
+
+#if check_args_opts ; then
+check_args_opts
+
+shift $((LAST_IND))
+
+case $1 in		#[COMMANDS]
+	"list-ip")    command_function_index=0;  break;;
+	"list-hosts") command_function_index=1; break;;
+	"list-uri")   command_function_index=2; break;;
+	"hist-ip")    command_function_index=3; break;;
+	"hist-load")  command_function_index=4; break;;
+	"-h"|"--h")	  echo "$help_string"; exit 0;;
+esac
+
+if ((command_function_index != 5)); then
+	shift 1;
+fi
+
+logs_array=("$@")
+
+if ((${#logs_array[@]} == 0)); then 	#[LOG FILES]
+
+	# no input file, read from stdin
+	contend="$( while IFS='$\n' read -r line; do
+    	echo $line
+	done )"
+
+if [ -z "$contend"]; then
+	exit 0
+fi
+
+else
+
+	# check input files, load them
+	for FILE in "${logs_array[@]}"
+	do
+		if [ ! -f $FILE ]; then
+			echo "Log file '$FILE' doesn't  exists." >&2
+			exit 2;
+		fi
+
+		contend+="$( echo $FILE | unzip_if_needed)"
+	done
+fi
+
+################## "MAIN" #######################
+
+if ((command_function_index < 3)); then
+	echo "$(${command_function_array[$command_function_index]})" | xargs -L1 echo | sort | uniq
+else
+	echo "$(${command_function_array[$command_function_index]})"
+fi
+
+
+exit 0
